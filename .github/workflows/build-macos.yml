@@ -60,9 +60,34 @@ jobs:
           path: codex-pwm-linux
           retention-days: 30
 
+  build-windows:
+    name: Build (Windows x86_64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\registry
+            ~\.cargo\git
+            codex-rs\target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Build
+        working-directory: codex-rs
+        run: cargo build --release --bin codex
+      - name: Stage binary
+        run: copy codex-rs\target\release\codex.exe codex-pwm-windows.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-pwm-windows
+          path: codex-pwm-windows.exe
+          retention-days: 30
+
   release:
     name: Create release
-    needs: [build-macos, build-linux]
+    needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -74,6 +99,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: codex-pwm-linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: codex-pwm-windows
       - name: Get short SHA
         id: sha
         run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -99,7 +127,16 @@ jobs:
               -o /usr/local/bin/codex-pwm && chmod +x /usr/local/bin/codex-pwm
             ```
 
-            ### Use with PWM exchange
+            ### Windows (x86_64)
+            Download [codex-pwm-windows.exe](https://github.com/integritynoble/codex-pwm/releases/latest/download/codex-pwm-windows.exe),
+            place it somewhere on your PATH (e.g. `C:\Windows\System32\codex-pwm.exe`), then:
+            ```powershell
+            $env:OPENAI_BASE_URL = "https://physicsworldmodel.org/api/v1/exchange/openai"
+            $env:OPENAI_API_KEY  = "pwm_<your key>"
+            codex-pwm
+            ```
+
+            ### Use with PWM exchange (macOS / Linux)
             ```bash
             export OPENAI_BASE_URL=https://physicsworldmodel.org/api/v1/exchange/openai
             export OPENAI_API_KEY=pwm_<your key>
@@ -112,5 +149,6 @@ jobs:
           files: |
             codex-pwm-macos
             codex-pwm-linux
+            codex-pwm-windows.exe
           draft: false
           prerelease: false
