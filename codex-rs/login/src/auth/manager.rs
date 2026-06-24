@@ -1161,8 +1161,16 @@ async fn load_auth(
     auth_route_config: Option<&AuthRouteConfig>,
 ) -> std::io::Result<Option<CodexAuth>> {
     // API key via env var takes precedence over any other auth method.
-    if enable_codex_api_key_env && let Some(api_key) = read_codex_api_key_from_env() {
-        return Ok(Some(CodexAuth::from_api_key(api_key.as_str())));
+    // CODEX_API_KEY takes highest priority; OPENAI_API_KEY is also honoured so
+    // that pointing Codex at a custom OPENAI_BASE_URL (e.g. a PWM exchange) works
+    // the same way that Claude Code works with ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN.
+    if enable_codex_api_key_env {
+        if let Some(api_key) = read_codex_api_key_from_env() {
+            return Ok(Some(CodexAuth::from_api_key(api_key.as_str())));
+        }
+        if let Some(api_key) = read_openai_api_key_from_env() {
+            return Ok(Some(CodexAuth::from_api_key(api_key.as_str())));
+        }
     }
 
     // External ChatGPT auth tokens live in the in-memory (ephemeral) store. Always check this

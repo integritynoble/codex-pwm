@@ -3387,7 +3387,12 @@ impl Config {
         let openai_base_url = cfg
             .openai_base_url
             .clone()
-            .filter(|value| !value.is_empty());
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                std::env::var("OPENAI_BASE_URL")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
 
         let model_providers =
             merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
