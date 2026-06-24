@@ -7,15 +7,13 @@ on:
 
 jobs:
   build-macos:
-    name: Build (macOS universal)
+    name: Build (macOS arm64)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -23,26 +21,18 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            codex-rs/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Build arm64
+      - name: Build
         working-directory: codex-rs
-        run: cargo build --release --bin codex --target aarch64-apple-darwin
+        run: cargo build --release --bin codex
 
-      - name: Build x86_64
-        working-directory: codex-rs
-        run: cargo build --release --bin codex --target x86_64-apple-darwin
-
-      - name: Create universal binary
+      - name: Rename binary
         run: |
-          lipo -create \
-            codex-rs/target/aarch64-apple-darwin/release/codex \
-            codex-rs/target/x86_64-apple-darwin/release/codex \
-            -output codex-pwm-macos
-          chmod +x codex-pwm-macos
-          lipo -info codex-pwm-macos
+          cp codex-rs/target/release/codex codex-pwm-macos
+          file codex-pwm-macos
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -77,17 +67,17 @@ jobs:
           body: |
             ## codex-pwm — PWM exchange build
 
-            Universal macOS binary (arm64 + x86_64) of Codex with two env var additions:
+            macOS arm64 binary of Codex with two env var additions:
 
-            ```
-            OPENAI_BASE_URL=https://physicsworldmodel.org/api/v1/exchange/openai \
-            OPENAI_API_KEY=pwm_<your key> \
+            ```bash
+            export OPENAI_BASE_URL=https://physicsworldmodel.org/api/v1/exchange/openai
+            export OPENAI_API_KEY=pwm_<your key>
             codex-pwm
             ```
 
             ### Changes vs upstream openai/codex
-            - `OPENAI_BASE_URL` env var overrides `openai_base_url` config (base URL for WebSocket)
-            - `OPENAI_API_KEY` env var is now honoured as Bearer auth (same priority as `CODEX_API_KEY`)
+            - `OPENAI_BASE_URL` env var overrides `openai_base_url` config
+            - `OPENAI_API_KEY` env var honoured as Bearer auth (same priority as `CODEX_API_KEY`)
 
             ### Install
             ```bash
