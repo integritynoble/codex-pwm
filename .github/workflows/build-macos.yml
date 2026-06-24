@@ -1,0 +1,100 @@
+name: Build macOS binary
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Build (macOS universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build arm64
+        working-directory: codex-rs
+        run: cargo build --release --bin codex --target aarch64-apple-darwin
+
+      - name: Build x86_64
+        working-directory: codex-rs
+        run: cargo build --release --bin codex --target x86_64-apple-darwin
+
+      - name: Create universal binary
+        run: |
+          lipo -create \
+            codex-rs/target/aarch64-apple-darwin/release/codex \
+            codex-rs/target/x86_64-apple-darwin/release/codex \
+            -output codex-pwm-macos
+          chmod +x codex-pwm-macos
+          lipo -info codex-pwm-macos
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-pwm-macos
+          path: codex-pwm-macos
+          retention-days: 30
+
+  release:
+    name: Create release
+    needs: build-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-pwm-macos
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ steps.sha.outputs.short }}
+          name: "codex-pwm build ${{ steps.sha.outputs.short }}"
+          body: |
+            ## codex-pwm — PWM exchange build
+
+            Universal macOS binary (arm64 + x86_64) of Codex with two env var additions:
+
+            ```
+            OPENAI_BASE_URL=https://physicsworldmodel.org/api/v1/exchange/openai \
+            OPENAI_API_KEY=pwm_<your key> \
+            codex-pwm
+            ```
+
+            ### Changes vs upstream openai/codex
+            - `OPENAI_BASE_URL` env var overrides `openai_base_url` config (base URL for WebSocket)
+            - `OPENAI_API_KEY` env var is now honoured as Bearer auth (same priority as `CODEX_API_KEY`)
+
+            ### Install
+            ```bash
+            curl -L https://github.com/integritynoble/codex-pwm/releases/latest/download/codex-pwm-macos \
+              -o /usr/local/bin/codex-pwm
+            chmod +x /usr/local/bin/codex-pwm
+            ```
+          files: codex-pwm-macos
+          draft: false
+          prerelease: false
