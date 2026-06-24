@@ -1,4 +1,4 @@
-name: Build macOS binary
+name: Build binaries
 
 on:
   push:
@@ -11,12 +11,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -24,51 +20,86 @@ jobs:
             codex-rs/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
-
       - name: Build
         working-directory: codex-rs
         run: cargo build --release --bin codex
-
-      - name: Rename binary
-        run: |
-          cp codex-rs/target/release/codex codex-pwm-macos
-          file codex-pwm-macos
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Stage binary
+        run: cp codex-rs/target/release/codex codex-pwm-macos
+      - uses: actions/upload-artifact@v4
         with:
           name: codex-pwm-macos
           path: codex-pwm-macos
           retention-days: 30
 
+  build-linux:
+    name: Build (Linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            codex-rs/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Install system deps
+        run: sudo apt-get install -y libssl-dev pkg-config
+      - name: Build
+        working-directory: codex-rs
+        run: cargo build --release --bin codex
+      - name: Strip and stage binary
+        run: |
+          strip codex-rs/target/release/codex
+          cp codex-rs/target/release/codex codex-pwm-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-pwm-linux
+          path: codex-pwm-linux
+          retention-days: 30
+
   release:
     name: Create release
-    needs: build-macos
+    needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: codex-pwm-macos
-
+      - uses: actions/download-artifact@v4
+        with:
+          name: codex-pwm-linux
       - name: Get short SHA
         id: sha
         run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Create or update release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ steps.sha.outputs.short }}
           name: "codex-pwm build ${{ steps.sha.outputs.short }}"
           body: |
             ## codex-pwm — PWM exchange build
 
-            macOS arm64 binary of Codex with two env var additions:
+            Patched Codex that respects `OPENAI_BASE_URL` and `OPENAI_API_KEY` env vars,
+            so it works with the PWM exchange exactly like Claude Code.
 
+            ### macOS (Apple Silicon)
+            ```bash
+            curl -L https://github.com/integritynoble/codex-pwm/releases/latest/download/codex-pwm-macos \
+              -o /usr/local/bin/codex-pwm && chmod +x /usr/local/bin/codex-pwm
+            ```
+
+            ### Linux (x86_64)
+            ```bash
+            curl -L https://github.com/integritynoble/codex-pwm/releases/latest/download/codex-pwm-linux \
+              -o /usr/local/bin/codex-pwm && chmod +x /usr/local/bin/codex-pwm
+            ```
+
+            ### Use with PWM exchange
             ```bash
             export OPENAI_BASE_URL=https://physicsworldmodel.org/api/v1/exchange/openai
             export OPENAI_API_KEY=pwm_<your key>
@@ -78,13 +109,8 @@ jobs:
             ### Changes vs upstream openai/codex
             - `OPENAI_BASE_URL` env var overrides `openai_base_url` config
             - `OPENAI_API_KEY` env var honoured as Bearer auth (same priority as `CODEX_API_KEY`)
-
-            ### Install
-            ```bash
-            curl -L https://github.com/integritynoble/codex-pwm/releases/latest/download/codex-pwm-macos \
-              -o /usr/local/bin/codex-pwm
-            chmod +x /usr/local/bin/codex-pwm
-            ```
-          files: codex-pwm-macos
+          files: |
+            codex-pwm-macos
+            codex-pwm-linux
           draft: false
           prerelease: false
